@@ -52,38 +52,34 @@ print_installation_summary() {
 # echo -e "\e[31mThis is red text\e[0m"
 # echo -e "\e[31m\e[0m"
 
-
-#====================================================================================================
-# Set timezone
-# What is the timezone for this machine?
-echo "Select time zone:"
-echo "1) West Coast Time"
-echo "2) Mountain Time"
-echo "3) Central Time"
-echo "4) East Coast Time"
-read -p "Enter your choice (1 or 2 or 3, or 4): " choice
-
-if [ "$choice" == "1" ]; then
-    run_checked "Set time zone" sudo timedatectl set-timezone America/Los_Angeles
-    echo "Set to PST"
-elif [ "$choice" == "2" ]; then
-    run_checked "Set time zone" sudo timedatectl set-timezone America/Denver
-    echo "Set to MST"
-elif [ "$choice" == "3" ]; then
-    run_checked "Set time zone" sudo timedatectl set-timezone America/Chicago
-    echo "Set to CST"
-elif [ "$choice" == "4" ]; then
-    run_checked "Set time zone" sudo timedatectl set-timezone America/New_York
-    echo "Set to EST"
-else
-    echo "Invalid option"
-fi
-
 #====================================================================================================
 # change screen blank to never
 echo -e "\e[36mSEYOND: changing Edgebox screen blank to never\e[0m"
 sleep 5
 gsettings set org.gnome.desktop.session idle-delay 0
+
+## disable autoupdate or message
+echo -e "\e[36mSEYOND: Disable auto update and message\e[0m"
+sleep 5
+FILE="/etc/apt/apt.conf.d/10periodic"
+echo "Disabling automatic APT updates..."
+sudo bash -c "cat > $FILE <<'EOF'
+APT::Periodic::Update-Package-Lists \"0\";
+APT::Periodic::Download-Upgradeable-Packages \"0\";
+APT::Periodic::AutocleanInterval \"0\";
+APT::Periodic::Unattended-Upgrade \"0\";
+EOF"
+sudo systemctl disable --now apt-daily.timer
+sudo systemctl disable --now apt-daily-upgrade.timer
+
+#====================================================================================================
+# install nomahcine here so can do installation easily
+echo -e "\e[36mSEYOND: installing nomachine\e[0m"
+sleep 5
+run_checked "Install NoMachine" sudo dpkg -i nomachine/*.deb
+
+
+
 
 
 #====================================================================================================
@@ -91,29 +87,15 @@ gsettings set org.gnome.desktop.session idle-delay 0
 # modify address1 to .111 and gateway to router in sunnyvale office for internet access
 echo -e "\e[36mSEYOND: Modifying network ip\e[0m"
 sleep 5
-
-FILE="/etc/NetworkManager/system-connections/eno1-static.nmconnection"
-
-# address2 for sdlc
-if echo "admin123@Seyond" | sudo -S grep -q '^address2=' "$FILE"; then
-    echo "admin123@Seyond" | sudo -S sed -i 's|^address2=.*|address2=192.168.1.100/24|' "$FILE"
-else
-    echo "admin123@Seyond" | sudo -S sed -i '/^address1=/a address2=192.168.1.100/24' "$FILE"
-fi
-
-# address3 for PoE Switch
-if echo "admin123@Seyond" | sudo -S grep -q '^address3=' "$FILE"; then
-    echo "admin123@Seyond" | sudo -S sed -i 's|^address3=.*|address3=192.168.2.100/24|' "$FILE"
-else
-    echo "admin123@Seyond" | sudo -S sed -i '/^address2=/a address3=192.168.2.100/24' "$FILE"
-fi
-
-# # address4 for sunnyvale office internet access
-# if echo "admin123@Seyond" | sudo -S grep -q '^address4=' "$FILE"; then
-#     echo "admin123@Seyond" | sudo -S sed -i 's|^address4=.*|address4=192.168.100.205/24|' "$FILE"
-# else
-#     echo "admin123@Seyond" | sudo -S sed -i '/^address3=/a address4=192.168.100.205/24' "$FILE"
-# fi
+# sudo sed -i 's|^address1=.*|address1=172.168.1.100/24|' /etc/NetworkManager/system-connections/eno1-static.nmconnection
+# for sdlc
+sudo sed -i "/address1/a address2=192.168.1.100/24" /etc/NetworkManager/system-connections/eno1-static.nmconnection
+# for sdlc and PoE Switch 192.168.2.1 (modify)
+sudo sed -i "/address2/a address3=192.168.2.100/24" /etc/NetworkManager/system-connections/eno1-static.nmconnection
+# for internet
+sudo sed -i "/address3/a address4=192.168.100.205/24" /etc/NetworkManager/system-connections/eno1-static.nmconnection
+#sudo sed -i "/address4/a gateway=192.168.100.2" /etc/NetworkManager/system-connections/eno1-static.nmconnection
+# sudo sed -i 's|^gateway=.*|gateway=192.168.100.2|' /etc/NetworkManager/system-connections/eno1-static.nmconnection
 
 :
 # (sleep 5 && sudo nmcli connection up "eno1-static") &
@@ -130,9 +112,9 @@ fi
 run_checked "Reload network configuration" sudo nmcli connection reload
 run_checked "Apply network configuration" sudo nmcli device reapply eno1
 # route sunnvale router for network connection
-# run_checked "Configure default network route" sudo nmcli connection modify "eno1-static" ipv4.routes "0.0.0.0/0 192.168.100.2"
+run_checked "Configure default network route" sudo nmcli connection modify "eno1-static" ipv4.routes "0.0.0.0/0 192.168.100.2"
 # this will be reset after reboot
-# run_checked "Apply temporary default route" sudo ip route replace default via 192.168.100.2
+run_checked "Apply temporary default route" sudo ip route replace default via 192.168.100.2
 
 
 
@@ -146,35 +128,26 @@ sudo -v
 KEEPER_PID=$!
 #====================================================================================================
 
-# echo -e "\e[36mSEYOND: checking internet access\e[0m"
-# sleep 5
-# run_checked "Check internet access" ping -c 4 8.8.8.8
+echo -e "\e[36mSEYOND: checking internet access\e[0m"
+sleep 5
+run_checked "Check internet access" ping -c 4 8.8.8.8
 
 
 #====================================================================================================
 # update package
 echo -e "\e[36mSEYOND: update and install package with apt\e[0m"
 sleep 5
-# run_checked "APT package update" sudo apt update
+run_checked "APT package update" sudo apt update
 # sudo apt upgrade -y
-
-#====================================================================================================
-# install nomahcine here so can do installation easily
-echo -e "\e[36mSEYOND: installing nomachine\e[0m"
-sleep 5
-run_checked "Install NoMachine" sudo dpkg -i nomachine/*.deb
-
-
-
 
 
 #====================================================================================================
 # Install troubleshoot Software
-echo -e "\e[36mSEYOND: Installing troubleshoot software: iftop, curl, speedtest, ffmpeg nmap socat\e[0m"
+echo -e "\e[36mSEYOND: Installing troubleshoot software: iftop, curl, speedtest, ffmpeg nmap\e[0m"
 sleep 5
-# run_checked "Install troubleshooting packages" sudo apt install -y iftop curl ffmpeg nmap socat
-# run_checked "Install Speedtest" sudo snap install speedtest
-sudo dpkg -i individual_app/deb_packages/*.deb
+run_checked "Install troubleshooting packages" sudo apt install -y iftop curl ffmpeg nmap socat
+run_checked "Install Speedtest" sudo snap install speedtest
+
 # for checking lidar info
 run_checked "Copy LiDAR SDK" cp sdk/*.tgz /home/admin/Documents
 # for recording point cloud
@@ -186,7 +159,7 @@ run_checked "Copy point-cloud recording tool" cp -r data_collect /home/admin/Doc
 #installing Virtual Driver (Syslogic needs this since dummy display doesn't work on the unit)
 echo -e "\e[36mSEYOND: installing Virtual Driver, Please run toggle_virtual_display_driver.sh to enable the virtual driver, and the physical monitor will be disabled after reboot\e[0m"
 sleep 5
-# run_checked "Install virtual display driver" sudo apt install -y xserver-xorg-video-dummy
+run_checked "Install virtual display driver" sudo apt install -y xserver-xorg-video-dummy
 run_checked "Back up physical display configuration" sudo cp /etc/X11/xorg.conf /etc/X11/xorg.conf.real
 run_checked "Create virtual display configuration" sudo cp /etc/X11/xorg.conf /etc/X11/xorg.conf.dummy
 sudo tee -a /etc/X11/xorg.conf.dummy > /dev/null <<'EOF'
@@ -217,55 +190,17 @@ EOF
 # save toggle on script on Documents folder
 run_checked "Copy virtual display toggle script" cp toggle_virtual_display_driver.sh /home/admin/Documents
 
-
-#====================================================================================================
-## disable autoupdate or message
-echo -e "\e[36mSEYOND: Disable auto update and message\e[0m"
-sleep 5
-FILE="/etc/apt/apt.conf.d/10periodic"
-echo "Disabling automatic APT updates..."
-sudo -S bash -c "cat > $FILE <<'EOF'
-APT::Periodic::Update-Package-Lists \"0\";
-APT::Periodic::Download-Upgradeable-Packages \"0\";
-APT::Periodic::AutocleanInterval \"0\";
-APT::Periodic::Unattended-Upgrade \"0\";
-EOF"
-sudo -S systemctl disable --now apt-daily.timer
-sudo -S systemctl disable --now apt-daily-upgrade.timer
-
-FILE="/etc/apt/apt.conf.d/10periodic"
-
-sudo -S bash -c "cat > $FILE <<'EOF'
-APT::Periodic::Update-Package-Lists \"0\";
-APT::Periodic::Download-Upgradeable-Packages \"0\";
-APT::Periodic::AutocleanInterval \"0\";
-APT::Periodic::Unattended-Upgrade \"0\";
-EOF"
-
-cat /etc/apt/apt.conf.d/10periodic
-
 #====================================================================================================
 # remove updater
 echo -e "\e[36mSEYOND: remove updater for pop-up window\e[0m"
 sleep 5
 
-# gsettings set com.ubuntu.update-notifier no-show-notifications true
-# dconf write /org/gnome/desktop/notifications/application/update-manager/enable false
-# sudo dpkg remove --purge update-manager update-notifier || true
-# pkill -f update-manager || true
-# pkill -f update-notifier || true
-
 gsettings set com.ubuntu.update-notifier no-show-notifications true
 dconf write /org/gnome/desktop/notifications/application/update-manager/enable false
-
+sudo apt remove --purge update-manager update-notifier
+sudo apt-mark hold update-manager update-notifier
 pkill -f update-manager || true
 pkill -f update-notifier || true
-sudo tee /etc/apt/apt.conf.d/20auto-upgrades > /dev/null <<'EOF'
-APT::Periodic::Update-Package-Lists "0";
-APT::Periodic::Download-Upgradeable-Packages "0";
-APT::Periodic::AutocleanInterval "0";
-APT::Periodic::Unattended-Upgrade "0";
-EOF
 
 
 #====================================================================================================
@@ -345,41 +280,24 @@ echo -e "\e[36mSEYOND: installing SIMPL\e[0m"
 sleep 5
 
 # to ensure the auto fusion will run at first start up, uninstall and install
-# /data/SIMPL_installation/SIMPL_Setup -n uninstall
-PASSWORD="admin123@Seyond"
-expect << EOF
-set timeout 60
-spawn /data/SIMPL_installation/SIMPL_Setup -n uninstall
-expect "Please enter the password for the user:"
-send "${PASSWORD}\r"
-expect eof
-EOF
-
-
+/data/SIMPL_installation/SIMPL_Setup -n uninstall
 sudo rm -rf /data/seyond_user/
 
 # Do you need highway or intersection?
-# echo "Select application type:"
-# echo "1) Intersection"
-# echo "2) Highway"
-# read -p "Enter your choice (1 or 2): " choice
+echo "Select application type:"
+echo "1) Intersection"
+echo "2) Highway"
+read -p "Enter your choice (1 or 2): " choice
 
-# if [ "$choice" == "1" ]; then
-#     run_checked "Install SIMPL" /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
-# elif [ "$choice" == "2" ]; then
-#     # /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s highway -l 172.168.1.11
-#     echo "Please install it manually with gui for highway until further notice"
-# else
-#     echo "Invalid option"
-# fi
-PASSWORD="admin123@Seyond"
-expect << EOF
-set timeout 300
-spawn /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
-expect "Please enter the password for the user:"
-send "${PASSWORD}\r"
-expect eof
-EOF
+if [ "$choice" == "1" ]; then
+    run_checked "Install SIMPL" /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
+elif [ "$choice" == "2" ]; then
+    # /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s highway -l 172.168.1.11
+    echo "Please install it manually with gui for highway until further notice"
+else
+    echo "Invalid option"
+fi
+
 
 
 
@@ -427,6 +345,33 @@ EOF
 ##sudo resolvectl revert tailscale0
 #sudo nmcli connection reload && sudo nmcli device reapply eno1
 #sudo ip route replace default via 192.168.100.2
+
+
+#====================================================================================================
+# Set timezone
+# What is the timezone for this machine?
+echo "Select time zone:"
+echo "1) West Coast Time"
+echo "2) Mountain Time"
+echo "3) Central Time"
+echo "4) East Coast Time"
+read -p "Enter your choice (1 or 2 or 3, or 4): " choice
+
+if [ "$choice" == "1" ]; then
+    run_checked "Set time zone" sudo timedatectl set-timezone America/Los_Angeles
+    echo "Set to PST"
+elif [ "$choice" == "2" ]; then
+    run_checked "Set time zone" sudo timedatectl set-timezone America/Denver
+    echo "Set to MST"
+elif [ "$choice" == "3" ]; then
+    run_checked "Set time zone" sudo timedatectl set-timezone America/Chicago
+    echo "Set to CST"
+elif [ "$choice" == "4" ]; then
+    run_checked "Set time zone" sudo timedatectl set-timezone America/New_York
+    echo "Set to EST"
+else
+    echo "Invalid option"
+fi
 
 
 
