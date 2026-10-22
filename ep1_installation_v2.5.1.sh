@@ -194,6 +194,9 @@ sync_temporary_ntp() {
     sudo rm -f /tmp/temporary-ntp.conf
 
     sudo systemctl start ntp
+    sudo hwclock --systohc --utc
+    timedatectl
+
 }
 
 run_checked "Temporary laptop NTP synchronization" sync_temporary_ntp
