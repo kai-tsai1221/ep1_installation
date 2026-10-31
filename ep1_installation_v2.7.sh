@@ -53,6 +53,35 @@ print_installation_summary() {
 # echo -e "\e[31m\e[0m"
 
 
+
+#====================================================================================================
+# Choose what SIMPL to install
+
+while true; do
+    echo "Select scenario for SIMPL installation:"
+    echo "1) Intersection dual Lidar"
+    echo "2) Highway Single Lidar"
+    read -r -p "Enter your choice [1/2] (Default: 1): " choice
+    choice=${choice:-1}
+
+    case "$choice" in
+        1)
+            echo -e "\e[32mSelected: Intersection Dual LiDAR\e[0m"
+            INSTALL_ARGS=(-s intersection -l 172.168.1.11 172.168.1.12 --actuation)
+            break
+            ;;
+        2)
+            echo -e "\e[32mSelected: Highway Single LiDAR\e[0m"
+            INSTALL_ARGS=(-s highway -l 172.168.1.11)
+            break
+            ;;
+        *)
+            echo -e "\e[31mInvalid option. Please enter 1 or 2.\e[0m"
+            ;;
+    esac
+done
+
+
 #====================================================================================================
 # Set timezone
 # What is the timezone for this machine?
@@ -78,6 +107,8 @@ elif [ "$choice" == "4" ]; then
 else
     echo "Invalid option"
 fi
+
+
 
 
 
@@ -237,6 +268,14 @@ EOF
 run_checked "Copy virtual display toggle script" cp toggle_virtual_display_driver.sh /home/admin/Documents
 
 
+====================================================================================================
+#copy useful dameon service
+echo -e "\e[36mSEYOND: copy useful dameon service to the edgebox\e[0m"
+sleep 5
+run_checked "Copy ethernet watchdog dameon service" sudo cp service/ethernet_watchdog/wired-watchdog.service /etc/systemd/system/wired-watchdog.service
+run_checked "Copy ethernet watchdog running script" sudo cp service/ethernet_watchdog/wired-watchdog.sh /usr/local/sbin/wired-watchdog.sh
+run_checked "Copy ethernet watchdog toggle script" cp toggle_ethernet_watchdog_service.sh /home/admin/Documents
+
 #====================================================================================================
 ## disable autoupdate or message
 echo -e "\e[36mSEYOND: Disable auto update and message\e[0m"
@@ -353,19 +392,23 @@ gsettings set org.gnome.shell favorite-apps "['firefox.desktop','org.gnome.Nauti
 
 
 #====================================================================================================
-# install simpl
+# Install SIMPL
+
 echo -e "\e[36mSEYOND: install/upgrade SIMPL\e[0m"
 echo -e "\e[36mSEYOND: unzip SIMPL\e[0m"
 sleep 5
+
 sudo mkdir -p /data/SIMPL_installation
-sudo chown $USER:$USER /data/SIMPL_installation
+sudo chown "$USER:$USER" /data/SIMPL_installation
+
 run_checked "Extract SIMPL package" sudo tar xzvf simpl_fw/*.tgz -C /data/SIMPL_installation
+
 echo -e "\e[36mSEYOND: installing SIMPL\e[0m"
 sleep 5
 
-# to ensure the auto fusion will run at first start up, uninstall and install
-# /data/SIMPL_installation/SIMPL_Setup -n uninstall
+# Uninstall existing SIMPL
 PASSWORD="admin123@Seyond"
+
 expect << EOF
 set timeout 60
 spawn /data/SIMPL_installation/SIMPL_Setup -n uninstall
@@ -374,51 +417,23 @@ send "${PASSWORD}\r"
 expect eof
 EOF
 
-
 sudo rm -rf /data/seyond_user/
 
-# Do you need highway or intersection?
-# echo "Select application type:"
-# echo "1) Intersection"
-# echo "2) Highway"
-# read -p "Enter your choice (1 or 2): " choice
+# Install SIMPL using the selection made earlier
+export PASSWORD
+export SIMPL_INSTALL_ARGS="${INSTALL_ARGS[*]}"
 
-# if [ "$choice" == "1" ]; then
-#     run_checked "Install SIMPL" /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
-# elif [ "$choice" == "2" ]; then
-#     # /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s highway -l 172.168.1.11
-#     echo "Please install it manually with gui for highway until further notice"
-# else
-#     echo "Invalid option"
-# fi
-PASSWORD="admin123@Seyond"
-expect << EOF
+expect << 'EOF'
 set timeout 300
-spawn /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
+set install_args [split $env(SIMPL_INSTALL_ARGS) " "]
+
+spawn /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 {*}$install_args
 expect "Please enter the password for the user:"
-send "${PASSWORD}\r"
+send "$env(PASSWORD)\r"
 expect eof
 EOF
 
-
-
-
-
-# if SIMPL is already installed. do upgrade
-# if sudo docker ps --format '{{.Names}}' | grep -q "^OmniVidi_VL$"; then
-#     echo "Already has SIMPL running, doing upgrade"
-#     # /data/SIMPL_installation/SIMPL_Setup -n update --host-ip 127.0.0.1
-#     /data/SIMPL_installation/SIMPL_Setup -n upgrade --simpl_username admin --simpl_password admin
-#     /data/SIMPL_installation/SIMPL_Setup -n update --actuation
-# else
-#     echo "don't have simpl install, running install"
-#     /data/SIMPL_installation/SIMPL_Setup -n install -p /data/seyond_user --host-ip 127.0.0.1 -s intersection -l 172.168.1.11 172.168.1.12 --actuation
-#     /data/SIMPL_installation/
-# fi
-
-
-# sudo /data/SIMPL_installation/installer -n -p /data/SIMPL_app --host-ip 172.168.1.111
-
+unset PASSWORD SIMPL_INSTALL_ARGS
 
 
 
@@ -451,7 +466,7 @@ EOF
 
 #====================================================================================================
 # check remove unnecessary stuff from the /data drive 
-read -p $'\e[1;33mSEYOND: Pres any key to continue remove unnecessary stuff in /data folder. System will reboot after [y/N]: \e[0m' confirm
+# read -p $'\e[1;33mSEYOND: Pres any key to continue remove unnecessary stuff in /data folder. System will reboot after [y/N]: \e[0m' confirm
 sudo mkdir /tmp/root_peek
 sudo mount --bind / /tmp/root_peek 
 sudo rm -rf /tmp/root_peek/data/backup/* /tmp/root_peek/data/tools/*
