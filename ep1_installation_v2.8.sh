@@ -72,7 +72,7 @@ while true; do
             ;;
         2)
             echo -e "\e[32mSelected: Highway Single LiDAR\e[0m"
-            INSTALL_ARGS=(-s highway -l 172.168.1.11)
+            INSTALL_ARGS=(-s vom -l 172.168.1.11)
             break
             ;;
         *)
@@ -210,6 +210,10 @@ run_checked "Copy LiDAR SDK" cp sdk/*.tgz /home/admin/Documents
 sudo mkdir -p /data/captures
 sudo chown $USER:$USER /data/captures
 run_checked "Copy point-cloud recording tool" cp -r data_collect /home/admin/Documents
+# for collecting logs for troubleshoot
+run_checked "Copy collect logs tool" cp individual_installation_script/install_data_collect.sh /home/admin/Documents
+# for checking SIMPL version installed
+run_checked "Copy collect logs tool" cp individual_installation_script/simpl-info-offline_check_simpl_version.zip /home/admin/Documents
 
 #====================================================================================================
 # Set temporary NTP server
